@@ -149,6 +149,7 @@
                   ? "form-control is-invalid"
                   : "form-control"}
                 bind:value={userDetail.f_name}
+                autofocus
                 placeholder="First Name"
               />
               <div class="invalid-feedback">
@@ -340,7 +341,6 @@
                   : "form-control"}
                 bind:value={userDetail.address_line1}
                 placeholder="Building/Apartment"
-                autofocus="on"
               />
               <div class="invalid-feedback">Please enter a valid address</div>
             </div>

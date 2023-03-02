@@ -48,7 +48,7 @@ CREATE TABLE ums.cities (
 
 --Creating table addresses which contains key of users & cities;
 
-CREATE TABLE addresses (
+CREATE TABLE ums.addresses (
   add_id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   u_id INT NOT NULL,
   address_line1 VARCHAR(255) NOT NULL,
@@ -72,10 +72,6 @@ CREATE VIEW AllUserData AS
     JOIN states ON cities.state_id = states.state_id
     WHERE del = '0'
     ORDER BY users.u_id;
-
-
-
-
 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 --Seed data

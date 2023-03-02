@@ -1,133 +1,180 @@
 const bcrypt = require("bcrypt");
-const Pool = require("../Config/db");
+const sequelize = require("../Config/database");
+const Addresses = require("../Models/addresses");
+const Cities = require("../Models/cities");
+const States = require("../Models/states");
+const Users = require("../Models/users");
+const { Op, where } = require("sequelize");
 
 exports.getAllUsersService = async (page) => {
-  const limit = 8;
+  const limit = 2;
   const offset = (page - 1) * limit;
-  const allUsers = await Pool.query(
-    `SELECT *
-    FROM ums.users
-    JOIN ums.addresses ON users.u_id = addresses.u_id
-    JOIN ums.cities ON addresses.city_id = cities.city_id
-    JOIN ums.states ON cities.state_id = states.state_id
-    WHERE users.del='0' ORDER BY users.u_id LIMIT ${limit} OFFSET ${offset} ;`
-  );
-  const totalRecords =
-    await Pool.query(`SELECT COUNT(del) FROM ums.users where del='0';
-  `);
+  //This find all method works same as select statement and we can declare all the attributes inside the method
+  //Also we do not have to specify the join explicitly as sequelize takes care of that internally. Also instead of join we have
+  //To specify the relations in appropriate format. For eg in below method the Addresses table contains the foreign key of users
+  //and cities and the cities table contains the foreign key of state table.
+  //The equivalent method we can consider is
+  //     SELECT *
+  //     FROM users
+  //     JOIN addresses ON users.u_id = addresses.u_id
+  //     JOIN cities ON addresses.city_id = cities.city_id
+  //     JOIN states ON cities.state_id = states.state_id
+  //     WHERE users.del='0' ORDER BY users.u_id LIMIT YourLimit OFFSET YourOffSetValue;
+  const data = await Addresses.findAll({
+    offset,
+    limit,
+    include: [
+      {
+        model: Users,
+        where: {
+          del: "0",
+        },
+      },
+      {
+        model: Cities,
+        include: [States],
+      },
+    ],
+    order: [[Users, "u_id", "ASC"]],
+  });
+  //The count method works same as
+  //SELECT count(*) FROM Users;
+  const totalRecords = await Users.count();
+  console.log(totalRecords);
+
   return {
-    data: allUsers.rows,
-    totalRecords: totalRecords.rows[0].count,
-    totalPages: Math.ceil(totalRecords.rows[0].count / limit),
+    data: dataRest(data),
+    totalRecords: totalRecords,
+    totalPages: Math.ceil(totalRecords / limit),
   };
 };
+
+//This method query the table and related models with like attribute
+//The equivalent method we can consider is
+//     SELECT *
+//     FROM ums.users
+//     JOIN ums.addresses ON users.u_id = addresses.u_id
+//     JOIN ums.cities ON addresses.city_id = cities.city_id
+//     JOIN ums.states ON cities.state_id = states.state_id
+//     WHERE users.email LIKE '%keyword we want to specify%' AND del='0'
+
 exports.getSingleUserService = async (id) => {
   id = id.trim().toLowerCase();
-  const user = await Pool.query(`SELECT *
-    FROM ums.users
-    JOIN ums.addresses ON users.u_id = addresses.u_id
-    JOIN ums.cities ON addresses.city_id = cities.city_id
-    JOIN ums.states ON cities.state_id = states.state_id
-    WHERE users.email LIKE '%${id}%' AND del='0'`);
-  return user.rows;
+  const data = await Addresses.findAll({
+    include: [
+      {
+        model: Users,
+        where: {
+          del: "0",
+          email: { [Op.like]: `%${id}%` },
+        },
+      },
+      {
+        model: Cities,
+        include: [States],
+      },
+    ],
+  });
+
+  return dataRest(data);
 };
+
+//The specified method works like soft delete where we are just updating the del column value to 1.
+//The equivalent raw operations is
+// UPDATE users set del='1' where u_id= <User Id>
 exports.deleteUserService = async (id) => {
-  const del = await Pool.query(`UPDATE ums.users set del='1' where u_id=${id}`);
-  if (del.rowCount === 0) {
+  const del = await Users.update({ del: "1" }, { where: { u_id: `${id}` } });
+  console.log(del[0]);
+  if (del[0] === 0) {
     return false;
   } else {
     return true;
   }
 };
+//The specified method updates the all the data tables with respect to the data received
+//Here we are updating all the tables separately as bult update is not available in the sequelize.
+//The equivalent queries are as below
+//update users set f_name='<First Name>', m_name='<Middle Name>', l_name='<Last Name>', email='<Email>',contact='<Contact>', password='<Password>', date_of_birth='<Date Of Birth>', gender='<Gender>' where u_id=<user-id>
+//update addresses set address_line1='<addressLine1>', address_line2='<addressLine2>', landmark='<Landmark>', zip_code='<Zip_Code>' where add_id=<address id>
+//update cities set city_name='<city_name>', state_id='<State_id>' where city_id=<city_id>
+//Here we have already added all the states and will directly map the state id
 exports.updateUserService = async (id, body) => {
-  const {
-    f_name,
-    m_name,
-    l_name,
-    email,
-    contact,
-    password,
-    date_of_birth,
-    gender,
-    address_line1,
-    address_line2,
-    landmark,
-    city_name,
-    zip_code,
-    state_name,
-    city_id,
-    state_id,
-    add_id,
-  } = body;
-  const userExists = await Pool.query(
-    `SELECT * FROM ums.users WHERE u_id = ${id}`
-  );
-  if (userExists.rowCount === 0) {
+  const userExists = await Users.findAll({ where: { u_id: `${id}` } });
+  console.log(userExists);
+  if (userExists.length === 0) {
     return false;
   } else {
-    const client = await Pool.connect();
-
-    try {
-      await client.query("BEGIN");
-      const updateUser = await client.query(`
-      update ums.users set f_name='${f_name}', m_name='${m_name}', l_name='${l_name}', email='${email}',contact='${contact}', password='${password}', date_of_birth='${date_of_birth}', gender='${gender}' where u_id=${id}`);
-      const updateAddress = await client.query(
-        `update ums.addresses set address_line1='${address_line1}', address_line2='${address_line2}', landmark='${landmark}', zip_code='${zip_code}' where add_id=${add_id}`
-      );
-      const updateCity = await client.query(
-        `update ums.cities set city_name='${city_name}', state_id='${mapState(
-          state_name
-        )}' where city_id=${city_id} `
-      );
-
-      await client.query("COMMIT");
-      return true;
-    } catch (error) {
-      await client.query("ROLLBACK");
-      console.log(error);
-    } finally {
-      client.release();
-    }
+    const updateUser = await Users.update(
+      {
+        f_name: body.f_name,
+        m_name: body.m_name,
+        l_name: body.l_name,
+        email: body.email,
+        contact: body.contact,
+        password: body.password,
+        date_of_birth: body.date_of_birth,
+        gender: body.gender,
+      },
+      { where: { u_id: `${id}` } }
+    );
+    const updateAddress = await Addresses.update(
+      {
+        address_line1: body.address_line1,
+        address_line2: body.address_line2,
+        landmark: body.landmark,
+        zip_code: body.zip_code,
+      },
+      { where: { add_id: `${body.add_id}` } }
+    );
+    const updateCity = await Addresses.update(
+      { city_name: body.city_name, stateStateId: mapState(body.state_name) },
+      { where: { city_id: `${body.city_id}` } }
+    );
+    return true;
   }
 };
+// The specified method inserts the user based on the parameters defined in the models
+//The equivalent query implementation can be described as below
+// INSERT INTO ums.users (f_name, m_name, l_name, email, contact, password, date_of_birth, gender) VALUES
+// ('<FirstName>', '<MiddleName>', '<LastName>', '<MiddleName>', '<Contact>', '<Password>', '<Date Of Birth>', '<Gender>')
+// INSERT INTO cities (city_name, state_id) VALUES ('<city_name>', <state_id>)
+// INSERT INTO ums.addresses ( address_line1, address_line2, landmark,zip_code, city_id,u_id) VALUES ( '<Address_line1>', '<Address_line2>', '<landmark>','<zip_code>', <city_Id>,<User_id>);
 exports.createUserService = async (user) => {
+  console.log(user);
+  user.email = user.email.toLowerCase();
   const hash = bcrypt.hashSync(user.password, 10);
   user.password = hash;
-  const isUnique = await Pool.query(
-    `select * from ums.users where email='${user.email}' and del='0';`
-  );
+  const isUnique = await Users.findAll({ where: { email: `${user.email}` } });
 
-  if (isUnique.rowCount !== 0) {
+  if (isUnique.length !== 0) {
     return { success: false, body: `Email already exists` };
   } else {
-    const client = await Pool.connect();
-    try {
-      await client.query("BEGIN");
-      const insertUser =
-        await client.query(`INSERT INTO ums.users (f_name, m_name, l_name, email, contact, password, date_of_birth, gender)
-   VALUES 
-   ('${user.f_name}', '${user.m_name}', '${user.l_name}', '${user.email}', '${user.contact}', '${user.password}', '${user.date_of_birth}', '${user.gender}') returning u_id`);
-      const u_id = insertUser.rows[0].u_id;
-      const state_id = mapState(user.state_name);
-      const insertCity = await client.query(
-        `INSERT INTO ums.cities (city_name, state_id) VALUES ('${user.city_name}', ${state_id}) returning city_id`
-      );
-      const city_id = insertCity.rows[0].city_id;
-      const insertAddresses =
-        await client.query(`INSERT INTO ums.addresses (u_id, address_line1, address_line2, landmark,zip_code, city_id)
-  VALUES 
-  (${u_id}, '${user.address_line1}', '${user.address_line2}', '${user.landmark}','${user.zip_code}', ${city_id});`);
-      await client.query("COMMIT");
-      return {
-        success: true,
-        body: `Thank You For Registrations ${user.f_name}`,
-      };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      console.log(error);
-    } finally {
-      client.release();
-    }
+    const createCity = await Cities.create({
+      city_name: user.city_name,
+      stateStateId: mapState(user.state_name),
+    });
+    const createUser = await Users.create({
+      f_name: user.f_name,
+      m_name: user.m_name,
+      l_name: user.l_name,
+      email: user.email,
+      contact: user.contact,
+      password: user.password,
+      date_of_birth: user.date_of_birth,
+      gender: user.gender,
+    });
+    const createAddress = await Addresses.create({
+      address_line1: user.address_line1,
+      address_line2: user.address_line2,
+      landmark: user.landmark,
+      zip_code: user.zip_code,
+      userUId: createUser.u_id,
+      cityCityId: createCity.city_id,
+    });
+    return {
+      success: true,
+      body: `Thank You For Registrations ${user.f_name}`,
+    };
   }
 };
 
@@ -135,75 +182,108 @@ var mapState = (State) => {
   switch (State) {
     case "Andhra Pradesh":
       return 1;
-    case "Andaman and Nicobar Islands":
+    case "Gujrat":
       return 2;
-    case "Arunachal Pradesh":
+    case "Andaman and Nicobar Islands":
       return 3;
-    case "Assam":
+    case "Lakshadweep":
       return 4;
-    case "Bihar":
-      return 5;
-    case "Chhattisgarh":
-      return 6;
     case "Dadar and Nagar Haveli":
+      return 5;
+    case "Jharkhand":
+      return 6;
+    case "Puducherry":
       return 7;
-    case "Daman and Diu":
+    case "Haryana":
       return 8;
     case "Delhi":
       return 9;
-    case "Lakshadweep":
-      return 10;
-    case "Puducherry":
-      return 11;
-    case "Goa":
-      return 12;
-    case "Gujarat":
-      return 13;
-    case "Haryana":
-      return 14;
     case "Himachal Pradesh":
-      return 15;
+      return 10;
+    case "Daman and Diu":
+      return 11;
+    case "Arunachal Pradesh":
+      return 12;
     case "Jammu and Kashmir":
+      return 13;
+    case "Goa":
+      return 14;
+    case "Maharashtra":
+      return 15;
+    case "Madhya Pradesh":
       return 16;
-    case "Jharkhand":
+    case "Meghalaya":
       return 17;
     case "Karnataka":
       return 18;
-    case "Kerala":
+    case "Assam":
       return 19;
-    case "Madhya Pradesh":
-      return 20;
-    case "Maharashtra":
-      return 21;
     case "Manipur":
-      return 22;
-    case "Meghalaya":
-      return 23;
-    case "Mizoram":
-      return 24;
-    case "Nagaland":
-      return 25;
-    case "Odisha":
-      return 26;
+      return 20;
+    case "Kerala":
+      return 21;
     case "Punjab":
-      return 27;
+      return 22;
+    case "Nagaland":
+      return 23;
     case "Rajasthan":
-      return 28;
-    case "Sikkim":
-      return 29;
-    case "Tamil Nadu":
-      return 30;
-    case "Telangana":
-      return 31;
+      return 24;
+    case "Odisha":
+      return 25;
+    case "Mizoram":
+      return 26;
     case "Tripura":
-      return 32;
+      return 27;
     case "Uttar Pradesh":
-      return 33;
+      return 28;
+    case "Chhattisgarh":
+      return 29;
+    case "Sikkim":
+      return 30;
+    case "Bihar":
+      return 31;
+    case "Tamil Nadu":
+      return 32;
     case "Uttarakhand":
+      return 33;
+    case "Telangana":
       return 34;
     case "West Bengal":
       return 35;
     default:
       break;
   }
+};
+
+const dataRest = (data) => {
+  const result = [];
+  for (let index = 0; index < data.length; index++) {
+    const userData = data[index].user;
+    const userAddress = data[index];
+    const userCities = data[index].city;
+    const userState = userCities.state;
+    const res = {
+      u_id: userData.u_id,
+      f_name: userData.f_name,
+      m_name: userData.m_name,
+      l_name: userData.l_name,
+      email: userData.email,
+      contact: userData.contact,
+      password: userData.password,
+      date_of_birth: userData.date_of_birth,
+      gender: userData.gender,
+      del: userData.del,
+      add_id: userAddress.add_id,
+      address_line1: userAddress.address_line1,
+      address_line2: userAddress.address_line2,
+      landmark: userAddress.landmark,
+      zip_code: userAddress.zip_code,
+      city_id: userCities.city_id,
+      city_name: userCities.city_name,
+      state_id: userState.state_id,
+      state_name: userState.state_name,
+    };
+    result.push(res);
+  }
+  return result;
 };

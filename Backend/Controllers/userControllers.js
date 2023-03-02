@@ -1,6 +1,6 @@
-const Pool = require("../Config/db");
 const bcrypt = require("bcrypt");
 const validator = require("validator");
+
 const {
   getAllUsersService,
   getSingleUserService,
@@ -123,6 +123,7 @@ exports.getUsers = async (req, res) => {
       }
     }
   } catch (error) {
+    console.log(error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
@@ -136,7 +137,7 @@ exports.deleteUser = async (req, res) => {
         .status(200)
         .send({ message: `User with ID ${id} deleted successfully` });
     } else {
-      res.status(404).send({ error: `No user found with ID ${id}` });
+      res.status(404).send(`No user found with ID ${id}`);
     }
   } catch (error) {
     console.log(error);

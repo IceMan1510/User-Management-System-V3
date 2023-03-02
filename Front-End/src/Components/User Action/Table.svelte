@@ -1,6 +1,6 @@
 <script>
   let loading = true;
-
+  let limit = 2;
   import { createEventDispatcher, onMount } from "svelte";
   import { tooltip } from "@svelte-plugins/tooltips";
 
@@ -134,8 +134,8 @@
       </table>
       <div class="clearfix">
         <div class="hint-text">
-          Showing <b>{(page - 1) * 8 + 1}</b> to
-          <b>{(page - 1) * 8 + totalRecordPerPage}</b> entries out of
+          Showing <b>{(page - 1) * limit + 1}</b> to
+          <b>{(page - 1) * limit + totalRecordPerPage}</b> entries out of
           <b>{totalRecords}</b>
         </div>
         <ul class="pagination">
